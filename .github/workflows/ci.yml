@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check imports
+        env:
+          DATABASE_URL: "postgresql://user:pass@localhost/db"
+        run: |
+          python -c "
+          import sys; sys.path.insert(0,'.')
+          from app.config import Settings
+          from app.models import User, Project, Estimation, BOQItem
+          from app.schemas.user import UserRegister, UserOut
+          from app.schemas.project import ProjectCreate, ProjectOut
+          from app.schemas.estimation import EstimationOut, BOQItemOut
+          from app.services.gemini_service import _safe_parse_json, _validate_estimation_result
+          from app.services.pdf_service import generate_boq_pdf
+          from app.services.excel_service import generate_boq_excel
+          from app.routers import auth, projects, estimation, export, intelligence
+          print('All imports OK')
+          "
+
+      - name: Validate PDF generation
+        env:
+          DATABASE_URL: "postgresql://user:pass@localhost/db"
+        run: |
+          python -c "
+          import sys; sys.path.insert(0,'.')
+          from unittest.mock import MagicMock
+          from datetime import datetime
+          from app.services.pdf_service import generate_boq_pdf
+          p = MagicMock()
+          p.name='CI Test'; p.project_type='residential'
+          p.city='Mumbai'; p.state='Maharashtra'
+          p.total_area_sqft=1000; p.num_floors=1; p.finish_quality='standard'
+          e = MagicMock()
+          e.total_cost=2000000; e.cost_per_sqft=2000
+          e.civil_work_cost=1000000; e.finishing_cost=600000
+          e.electrical_cost=200000; e.plumbing_cost=150000
+          e.contingency_cost=100000; e.contingency_pct=5
+          e.ai_confidence='high'; e.version=1
+          e.created_at=datetime.now(); e.ai_notes='CI test'
+          i = MagicMock()
+          i.item_code='CV-001'; i.description='Test item'
+          i.category='civil'; i.unit='sqm'; i.quantity=100
+          i.rate=500; i.amount=50000; i.is_user_edited=False
+          e.boq_items=[i]
+          pdf = generate_boq_pdf(p, e)
+          assert pdf[:4]==b'%PDF', 'Invalid PDF'
+          print(f'PDF OK: {len(pdf)} bytes')
+          "
+
+  frontend:
+    name: Frontend checks
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Type check
+        run: npx tsc --noEmit
+        env:
+          NEXT_PUBLIC_API_URL: "http://localhost:8000"
+          NEXTAUTH_URL: "http://localhost:3000"
+          NEXTAUTH_SECRET: "ci-secret-key-for-type-checking-only"

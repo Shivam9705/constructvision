@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: constructvision-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    healthCheckPath: /health
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: constructvision-db
+          property: connectionString
+      - key: SECRET_KEY
+        generateValue: true
+      - key: GEMINI_API_KEY
+        sync: false          # Set manually in Render dashboard
+      - key: ALLOWED_ORIGINS
+        value: '["https://constructvision.vercel.app","http://localhost:3000"]'
+      - key: DEBUG
+        value: "False"
+      - key: MAX_UPLOAD_SIZE_MB
+        value: "10"
+
+databases:
+  - name: constructvision-db
+    databaseName: constructvision
+    user: constructvision_user
+    plan: free
+    region: oregon
